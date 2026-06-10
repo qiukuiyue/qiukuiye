@@ -1,0 +1,11 @@
+services:
+  prompt-director:
+    build:
+      context: .
+    container_name: prompt-director
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
