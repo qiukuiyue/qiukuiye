@@ -1,6 +1,5 @@
 import {
   buildModelMessages,
-  createFallbackStoryboard,
   normalizeStoryboardResponse,
   type StoryboardRequest
 } from "@/lib/storyboard";
@@ -16,41 +15,32 @@ export async function POST(request: Request) {
   try {
     payload = (await request.json()) as StoryboardRequest;
   } catch {
-    return Response.json(
-      createFallbackStoryboard(
-        {
-          inputText: "",
-          brandTone: "auto",
-          platform: "douyin",
-          duration: "30s",
-          visualStyle: "auto"
-        },
-        "请求内容不是有效 JSON，已使用本地规则生成。"
-      )
-    );
+    return errorResponse("请求内容不是有效 JSON。", 400);
   }
 
   const inputText = payload.inputText?.trim();
-  const requestContext = {
-    inputText: inputText || "请先粘贴产品文案、脚本或逐字稿。",
-    brandTone: payload.brandTone ?? "auto",
-    platform: payload.platform ?? "douyin",
-    duration: payload.duration ?? "30s",
-    visualStyle: payload.visualStyle ?? "auto"
-  };
-
   if (!inputText) {
-    return Response.json(createFallbackStoryboard(requestContext, "输入为空，已生成一套示例结构。"));
+    return errorResponse("请先粘贴产品文案、脚本或逐字稿。", 400);
   }
 
   const baseUrl = payload.apiConfig?.baseUrl?.trim().replace(/\/+$/, "");
   const apiKey = payload.apiConfig?.apiKey?.trim();
   const model = payload.apiConfig?.model?.trim();
   const maxTokens = clampNumber(payload.apiConfig?.maxTokens, 2000, 16000, DEFAULT_MAX_TOKENS);
-  const timeoutMs = clampNumber(payload.apiConfig?.timeoutSeconds, 30, 300, DEFAULT_MODEL_TIMEOUT_MS / 1000) * 1000;
+  const timeoutMs =
+    clampNumber(payload.apiConfig?.timeoutSeconds, 30, 300, DEFAULT_MODEL_TIMEOUT_MS / 1000) *
+    1000;
+  const requestContext = {
+    inputText,
+    brandTone: payload.brandTone ?? "auto",
+    platform: payload.platform ?? "douyin",
+    duration: payload.duration ?? "30s",
+    persona: payload.persona ?? "auto",
+    personaPrompt: payload.personaPrompt?.trim() ?? ""
+  };
 
   if (!baseUrl || !apiKey || !model) {
-    return Response.json(createFallbackStoryboard(requestContext, "API 配置不完整，已使用本地规则生成。"));
+    return errorResponse("API 配置不完整。当前已关闭本地规则生成，请填写 API Key、Base URL 和模型名。", 400);
   }
 
   const isDeepSeek = isDeepSeekConfig(baseUrl, model);
@@ -77,10 +67,12 @@ export async function POST(request: Request) {
 
     const completion = await modelResponse.json();
     const content = completion?.choices?.[0]?.message?.content;
-    if (typeof content !== "string") throw new Error("模型没有返回 message.content");
+    if (typeof content !== "string") {
+      throw new Error("模型没有返回 message.content");
+    }
 
-    const parsed = JSON.parse(content);
-    return Response.json(normalizeStoryboardResponse(parsed, requestContext));
+    const parsed = parseModelJson(content);
+    return Response.json(normalizeStoryboardResponse(parsed));
   } catch (error) {
     const message =
       error instanceof Error && error.name === "AbortError"
@@ -88,23 +80,67 @@ export async function POST(request: Request) {
         : error instanceof Error
           ? error.message
           : "模型调用失败";
-    return Response.json(createFallbackStoryboard(requestContext, `${message}，已自动回退本地规则。`));
+    return errorResponse(`${message}。当前已关闭本地规则生成，请修正 API 配置或重试。`, 502);
   } finally {
     clearTimeout(timeout);
   }
 }
 
+function errorResponse(message: string, status: number) {
+  return Response.json(
+    {
+      error: message,
+      warnings: [message]
+    },
+    { status }
+  );
+}
+
+function parseModelJson(content: string) {
+  const trimmed = content.trim();
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fenced?.[1]) {
+      return JSON.parse(fenced[1].trim());
+    }
+
+    const objectStart = trimmed.indexOf("{");
+    const objectEnd = trimmed.lastIndexOf("}");
+    if (objectStart >= 0 && objectEnd > objectStart) {
+      return JSON.parse(trimmed.slice(objectStart, objectEnd + 1));
+    }
+
+    throw new Error("模型返回不是合法 JSON");
+  }
+}
+
 function createChatCompletionEndpoint(baseUrl: string, model: string) {
   const normalizedBaseUrl = baseUrl.trim().replace(/\/+$/, "");
-  if (normalizedBaseUrl.endsWith("/chat/completions")) return normalizedBaseUrl;
-  if (isDeepSeekConfig(normalizedBaseUrl, model)) return `${normalizedBaseUrl.replace(/\/v1$/, "")}/chat/completions`;
-  if (normalizedBaseUrl.endsWith("/v1")) return `${normalizedBaseUrl}/chat/completions`;
+
+  if (normalizedBaseUrl.endsWith("/chat/completions")) {
+    return normalizedBaseUrl;
+  }
+
+  if (isDeepSeekConfig(normalizedBaseUrl, model)) {
+    return `${normalizedBaseUrl.replace(/\/v1$/, "")}/chat/completions`;
+  }
+
+  if (normalizedBaseUrl.endsWith("/v1")) {
+    return `${normalizedBaseUrl}/chat/completions`;
+  }
+
   return `${normalizedBaseUrl}/v1/chat/completions`;
 }
 
 function createChatCompletionBody(
   model: string,
-  requestContext: Pick<StoryboardRequest, "inputText" | "brandTone" | "platform" | "duration" | "visualStyle">,
+  requestContext: Pick<
+    StoryboardRequest,
+    "inputText" | "brandTone" | "platform" | "duration" | "persona" | "personaPrompt"
+  >,
   isDeepSeek: boolean,
   maxTokens: number
 ) {
@@ -130,7 +166,9 @@ function isDeepSeekConfig(baseUrl: string, model: string) {
 }
 
 function clampNumber(value: unknown, min: number, max: number, fallback: number) {
-  const numberValue = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+  const numberValue =
+    typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+
   if (!Number.isFinite(numberValue)) return fallback;
   return Math.min(max, Math.max(min, Math.round(numberValue)));
 }

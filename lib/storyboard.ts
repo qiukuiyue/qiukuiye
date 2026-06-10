@@ -9,7 +9,20 @@ export type BrandTone =
   | "youth";
 
 export type Platform = "douyin" | "xiaohongshu" | "kuaishou" | "bilibili";
+
 export type Duration = "15s" | "30s" | "45s" | "60s";
+
+export type Persona =
+  | "auto"
+  | "female_creator"
+  | "beauty_expert"
+  | "tech_reviewer"
+  | "working_woman"
+  | "mom_lifestyle"
+  | "student_budget"
+  | "premium_taste"
+  | "fitness_selfcare"
+  | "oriental_lifestyle";
 
 export type VisualStyle =
   | "auto"
@@ -17,6 +30,7 @@ export type VisualStyle =
   | "tech"
   | "luxury"
   | "minimal"
+  | "warm"
   | "fresh"
   | "cute"
   | "dramatic"
@@ -36,7 +50,8 @@ export type StoryboardRequest = {
   brandTone: BrandTone;
   platform: Platform;
   duration: Duration;
-  visualStyle: VisualStyle;
+  persona?: Persona;
+  personaPrompt?: string;
 };
 
 export type StoryboardAnalysis = {
@@ -48,16 +63,20 @@ export type StoryboardAnalysis = {
   resultValues: string[];
 };
 
+export type PublicReasoningStep = {
+  title: string;
+  detail: string;
+};
+
 export type StoryboardScene = {
   id: string;
   sceneTitle: string;
+  scriptAnchor: string;
   sellingPoint: string;
   painPoint: string;
   visualDescription: string;
   cameraMovement: string;
   aiEffect: string;
-  subtitle: string;
-  voiceover: string;
   promptZh: string;
   promptEn: string;
   negativePrompt: string;
@@ -65,8 +84,9 @@ export type StoryboardScene = {
 };
 
 export type StoryboardResponse = {
-  source: "model" | "fallback";
+  source: "model";
   analysis: StoryboardAnalysis;
+  reasoningSummary: PublicReasoningStep[];
   scenes: StoryboardScene[];
   warnings: string[];
 };
@@ -95,22 +115,84 @@ const visualStyleLabels: Record<VisualStyle, string> = {
   tech: "科技风",
   luxury: "高奢质感",
   minimal: "极简干净",
+  warm: "温暖生活",
   fresh: "清新自然",
   cute: "可爱活泼",
   dramatic: "强冲击种草",
   oriental: "东方审美"
 };
 
-const styleHints: Record<VisualStyle, string> = {
+const visualStyleHints: Record<VisualStyle, string> = {
   auto: "根据产品品类、品牌调性和使用人群自动选择视觉风格。",
-  feminine: "柔和肤色、奶油白、玫瑰粉、香槟金、细腻皮肤质感、闺蜜分享感。",
-  tech: "清晰结构、微观剖面、数据轨迹、冷暖对比光、透明材质和精密运动。",
-  luxury: "低饱和高级色、克制光影、金属、玻璃、丝绸质感和精品广告构图。",
-  minimal: "大面积留白、干净背景、单一主体、慢速稳定镜头和清晰信息。",
-  fresh: "自然日光、植物、水感、通透空气、浅色背景和轻盈结果变化。",
-  cute: "明快色块、圆润道具、轻快节奏、弹跳字幕和更强的情绪反馈。",
-  dramatic: "强前后对比、快速节奏、冲击字幕、夸张但可理解的视觉转化。",
-  oriental: "木、纸、瓷、水墨、茶色、柔和侧光、节制构图和自然材质。"
+  feminine: "柔和肤色、奶油白/玫瑰粉/香槟金、细腻皮肤质感、闺蜜分享感、轻柔微距和优雅手部动作。",
+  tech: "清晰结构、微观剖面、数据轨迹、冷暖对比光、透明材质、精密运动和产品功能链路可视化。",
+  luxury: "低饱和高级色、克制光影、金属/玻璃/丝绸质感、慢速推镜和精品广告构图。",
+  minimal: "大面积留白、干净背景、单一主体、慢速稳定镜头、少装饰、强调产品形态和清晰信息。",
+  warm: "自然暖光、家庭餐桌/客厅/厨房等真实场景、柔和手持、亲密关系和安心感。",
+  fresh: "自然日光、植物/水感/通透空气、浅色背景、生活化手持、清爽轻盈的结果变化。",
+  cute: "明快色块、圆润道具、轻快节奏、拟物化视觉提示和更强的情绪反馈。",
+  dramatic: "强前后对比、快速节奏、冲击式画面构图、夸张但可理解的视觉转化和高记忆点结尾。",
+  oriental: "木、纸、瓷、水墨、茶色、柔和侧光、节制构图和自然材质的东方生活美学。"
+};
+
+const personaProfiles: Record<
+  Persona,
+  {
+    label: string;
+    visualStyle: VisualStyle;
+    hint: string;
+  }
+> = {
+  auto: {
+    label: "自动识别",
+    visualStyle: "auto",
+    hint: "根据产品品类、文案语气、价格带和使用场景自动判断人设与画面风格。"
+  },
+  female_creator: {
+    label: "精致女性种草博主",
+    visualStyle: "feminine",
+    hint: "适合美妆、护肤、香氛、穿搭和生活好物；画面更细腻、柔和、干净，有闺蜜分享感。"
+  },
+  beauty_expert: {
+    label: "成分党护肤博主",
+    visualStyle: "minimal",
+    hint: "适合护肤、个护、功效型产品；画面重成分、肤感、微距质地和专业可信证据。"
+  },
+  tech_reviewer: {
+    label: "科技数码测评人",
+    visualStyle: "tech",
+    hint: "适合数码、家电、AI 工具和效率产品；画面重结构剖面、数据轨迹、性能对比和精密质感。"
+  },
+  working_woman: {
+    label: "都市白领通勤人设",
+    visualStyle: "luxury",
+    hint: "适合通勤、办公、效率、包袋、咖啡和精致生活产品；画面更利落、克制、有轻商务质感。"
+  },
+  mom_lifestyle: {
+    label: "宝妈家庭生活家",
+    visualStyle: "warm",
+    hint: "适合家清、母婴、食品、小家电和家庭收纳；画面更温暖、真实、注重安心感和使用前后变化。"
+  },
+  student_budget: {
+    label: "学生党平价分享",
+    visualStyle: "cute",
+    hint: "适合平价好物、学习宿舍、零食饮料和小预算变美；画面更轻快、明亮、强调高性价比和即时反馈。"
+  },
+  premium_taste: {
+    label: "轻熟高奢审美",
+    visualStyle: "luxury",
+    hint: "适合高客单、礼盒、香氛、珠宝和品质生活；画面更高级、克制、重材质和光影。"
+  },
+  fitness_selfcare: {
+    label: "自律健康生活家",
+    visualStyle: "fresh",
+    hint: "适合运动、健康食品、功能饮料、仪器和自我管理；画面更清爽、有身体状态变化和能量感。"
+  },
+  oriental_lifestyle: {
+    label: "东方美学生活家",
+    visualStyle: "oriental",
+    hint: "适合茶、香、草本、家居、国风护肤和生活方式产品；画面重材质、留白、自然光和东方意境。"
+  }
 };
 
 const durationSceneCount: Record<Duration, number> = {
@@ -120,8 +202,9 @@ const durationSceneCount: Record<Duration, number> = {
   "60s": 7
 };
 
-const genericNegativePrompt =
-  "低清晰度、错误文字、水印、畸形手指、产品变形、品牌 logo 错误、过曝、脏污背景、画面抖动、字幕遮挡主体、空泛科技特效、无关赛博城市";
+export function getToneLabel(tone: BrandTone) {
+  return toneLabels[tone] ?? toneLabels.auto;
+}
 
 export function getPlatformLabel(platform: Platform) {
   return platformLabels[platform] ?? platformLabels.douyin;
@@ -131,58 +214,71 @@ export function getVisualStyleLabel(style: VisualStyle) {
   return visualStyleLabels[style] ?? visualStyleLabels.auto;
 }
 
-export function createFallbackStoryboard(
-  request: Pick<StoryboardRequest, "inputText" | "brandTone" | "platform" | "duration"> & {
-    visualStyle?: VisualStyle;
-  },
-  warning?: string
-): StoryboardResponse {
-  const analysis = analyzeInput(request.inputText, request.brandTone);
-  const scenes = buildScenes(
-    analysis,
-    request.platform,
-    request.duration,
-    request.visualStyle ?? "auto",
-    durationSceneCount[request.duration] ?? 6
-  );
-
-  return {
-    source: "fallback",
-    analysis,
-    scenes,
-    warnings: warning ? [warning] : []
-  };
+export function getPersonaLabel(persona: Persona) {
+  return personaProfiles[persona]?.label ?? personaProfiles.auto.label;
 }
 
-export function normalizeStoryboardResponse(
-  data: unknown,
-  request: Pick<StoryboardRequest, "inputText" | "brandTone" | "platform" | "duration"> & {
-    visualStyle?: VisualStyle;
-  }
-): StoryboardResponse {
-  if (!isRecord(data)) throw new Error("模型返回不是对象");
+export function getPersonaStyleSummary(persona: Persona) {
+  const profile = personaProfiles[persona] ?? personaProfiles.auto;
+  return `${getVisualStyleLabel(profile.visualStyle)}：${profile.hint}`;
+}
 
-  const fallback = createFallbackStoryboard(request);
-  const rawAnalysis = isRecord(data.analysis) ? data.analysis : {};
+export function getPersonaPromptFromPreset(persona: Persona) {
+  const profile = personaProfiles[persona] ?? personaProfiles.auto;
+  if (persona === "auto") return "";
+  return `${profile.label}：${profile.hint}`;
+}
+
+export function getCustomPersonaTitle(personaPrompt: string, fallbackPersona: Persona = "auto") {
+  const cleaned = personaPrompt.replace(/\s+/g, " ").trim();
+  if (!cleaned) return getPersonaLabel(fallbackPersona);
+
+  const firstPart = cleaned.split(/[：:。；;，,\n]/)[0]?.trim() || cleaned;
+  return firstPart.length > 24 ? `${firstPart.slice(0, 24)}...` : firstPart;
+}
+
+export function getCustomPersonaStyleSummary(
+  personaPrompt: string,
+  fallbackPersona: Persona = "auto"
+) {
+  const cleaned = personaPrompt.trim();
+  if (!cleaned) return getPersonaStyleSummary(fallbackPersona);
+
+  const inferredStyle = inferVisualStyleFromPersona(cleaned);
+  const fallbackProfile = personaProfiles[fallbackPersona] ?? personaProfiles.auto;
+  const visualStyle =
+    inferredStyle === "auto" ? fallbackProfile.visualStyle : inferredStyle;
+
+  return `${getVisualStyleLabel(visualStyle)}：${visualStyleHints[visualStyle]} 模型会优先按你输入的人设身份、口吻、审美、专业程度和脚本场景生成。`;
+}
+
+export function normalizeStoryboardResponse(data: unknown): StoryboardResponse {
+  if (!isRecord(data)) {
+    throw new Error("模型返回不是对象");
+  }
+
+  const rawAnalysis = requireRecord(data.analysis, "模型返回缺少 analysis");
   const analysis: StoryboardAnalysis = {
-    productName: readString(rawAnalysis.productName, fallback.analysis.productName),
-    brandTone: readString(rawAnalysis.brandTone, fallback.analysis.brandTone),
-    sellingPoints: readStringArray(rawAnalysis.sellingPoints, fallback.analysis.sellingPoints),
-    painPoints: readStringArray(rawAnalysis.painPoints, fallback.analysis.painPoints),
-    useCases: readStringArray(rawAnalysis.useCases, fallback.analysis.useCases),
-    resultValues: readStringArray(rawAnalysis.resultValues, fallback.analysis.resultValues)
+    productName: requireString(rawAnalysis.productName, "analysis.productName"),
+    brandTone: requireString(rawAnalysis.brandTone, "analysis.brandTone"),
+    sellingPoints: requireStringArray(rawAnalysis.sellingPoints, "analysis.sellingPoints"),
+    painPoints: requireStringArray(rawAnalysis.painPoints, "analysis.painPoints"),
+    useCases: requireStringArray(rawAnalysis.useCases, "analysis.useCases"),
+    resultValues: requireStringArray(rawAnalysis.resultValues, "analysis.resultValues")
   };
 
   const sceneInput = Array.isArray(data.scenes) ? data.scenes : [];
   const scenes = sceneInput
-    .map((scene, index) => normalizeScene(scene, index, fallback.scenes[index], analysis))
-    .filter(Boolean) as StoryboardScene[];
+    .map((scene, index) => normalizeScene(scene, index));
 
-  if (scenes.length < 3) throw new Error("模型返回分镜数量不足");
+  if (scenes.length < 3) {
+    throw new Error("模型返回分镜数量不足");
+  }
 
   return {
     source: "model",
     analysis,
+    reasoningSummary: normalizeReasoningSummary(data.reasoningSummary, []),
     scenes,
     warnings: readStringArray(data.warnings, [])
   };
@@ -190,11 +286,12 @@ export function normalizeStoryboardResponse(
 
 export function buildModelMessages(
   request: Pick<StoryboardRequest, "inputText" | "brandTone" | "platform" | "duration"> & {
-    visualStyle?: VisualStyle;
+    persona?: Persona;
+    personaPrompt?: string;
   }
 ) {
-  const visualStyle = request.visualStyle ?? "auto";
-  const fallbackAnalysis = analyzeInput(request.inputText, request.brandTone);
+  const scriptSegments = createScriptSegments(request.inputText, durationSceneCount[request.duration] ?? 6);
+  const personaContext = resolvePersonaContext(request.personaPrompt, request.persona);
 
   return [
     {
@@ -205,19 +302,30 @@ export function buildModelMessages(
     {
       role: "user",
       content: [
-        "请根据以下产品文案生成产品种草短视频分镜。",
+        "请根据以下产品文案/脚本/逐字稿生成产品种草短视频分镜。",
         `平台：${getPlatformLabel(request.platform)}`,
         `时长：${request.duration}`,
-        `品牌调性：${toneLabels[request.brandTone]}`,
-        `画面风格：${getVisualStyleLabel(visualStyle)}`,
-        `风格执行说明：${styleHints[visualStyle]}`,
+        `品牌调性：${getToneLabel(request.brandTone)}`,
+        `目标人设（用户输入，最高优先级）：${personaContext.personaText}`,
+        `人设执行要求：${personaContext.personaInstruction}`,
+        `由人设推导出的画面风格：${getVisualStyleLabel(personaContext.visualStyle)}`,
+        `风格执行说明：${visualStyleHints[personaContext.visualStyle]}`,
+        "脚本拆分参考。必须优先按这些原文片段的顺序生成镜头；如果你重新拆分，也要保持原文叙事顺序：",
+        JSON.stringify(scriptSegments, null, 2),
         "要求：",
-        "1. 生成 5-7 个镜头，适配 15-60 秒短视频。",
-        "2. 每个 AI 视频效果必须绑定具体卖点、痛点、使用场景或结果价值。",
-        "3. 中文 prompt 和英文 prompt 都要包含主体、场景、动作、镜头、光线、质感、画面风格和夸张效果。",
-        "4. 负面 prompt 要包含画面错误、文字错误、产品变形、手部错误、水印等。",
-        "5. 所有镜头必须统一画面风格。",
-        "6. 输出 JSON 结构必须严格匹配：",
+        "1. 脚本贴合优先级最高：每个镜头必须绑定一个 scriptAnchor，scriptAnchor 必须是原始文案中的连续原文片段或轻微清理后的原句，不要编造新剧情。",
+        "2. 镜头顺序必须跟原脚本顺序一致；画面描述和 AI 视频效果要沿着 scriptAnchor 的含义展开，不要改成另一套通用种草话术。",
+        "3. AI 视频效果只能服务于该段脚本正在表达的内容：把该句的痛点、卖点、情绪或结果做视觉化放大，不能跳到脚本没有出现的场景。",
+        "4. 默认生成 5-7 个镜头，适配 15-60 秒种草短视频；如果脚本明显有开头/承接/证明/结果/行动引导，要按这些段落切镜头。",
+        "5. 每个 AI 视频效果必须来自具体卖点、痛点、使用场景、结果价值或脚本原句，不能写空泛的赛博、未来感、炫酷特效。",
+        "6. 每个镜头必须可直接复制到 AI 视频工具。",
+        "7. 中文 prompt 和英文 prompt 都要具体描述主体、场景、动作、镜头、光线、质感、画面风格、脚本原文含义和夸张效果；不要单独输出字幕和旁白字段。",
+        "8. 负面 prompt 要包含画面错误、文字错误、产品变形、手部错误、水印等。",
+        "9. AI 效果优先使用：微观成分/结构可视化、时间压缩、不可见问题具象化、同一镜头前后状态共存、环境响应、情绪/触感/气味/噪声/吸收/效率等抽象体验可视化。",
+        "10. 所有镜头必须统一人设和画面风格，不要一镜一套视觉体系；人设和风格要进入 visualDescription、aiEffect、promptZh 和 promptEn，而不是只写在分析里。",
+        "11. 必须把用户输入的人设和脚本原文结合起来：如果人设里有年龄、职业、表达口吻、审美偏好、拍摄习惯、专业程度或目标受众，要在每个镜头里转成具体场景、视角、道具、画面质感和 AI 效果。",
+        "12. 输出 reasoningSummary，展示可公开的导演分析步骤，必须说明如何按脚本段落拆镜、如何结合人设选择画面风格。不要输出隐藏思维链、逐 token 推理或长篇内心过程，只输出用户可读的简洁创作依据。",
+        "13. 输出 JSON 结构必须严格匹配：",
         JSON.stringify(
           {
             analysis: {
@@ -228,16 +336,25 @@ export function buildModelMessages(
               useCases: ["场景"],
               resultValues: ["结果价值"]
             },
+            reasoningSummary: [
+              {
+                title: "人设判断",
+                detail: "为什么选择这个人设和画面气质"
+              },
+              {
+                title: "卖点转译",
+                detail: "如何把核心卖点转成 AI 视频画面"
+              }
+            ],
             scenes: [
               {
                 sceneTitle: "镜头标题",
+                scriptAnchor: "对应脚本原文片段",
                 sellingPoint: "对应卖点",
                 painPoint: "痛点/场景",
                 visualDescription: "画面描述",
                 cameraMovement: "镜头运动",
                 aiEffect: "绑定卖点的夸张 AI 视觉效果",
-                subtitle: "字幕",
-                voiceover: "旁白",
                 promptZh: "中文 AI 视频 prompt",
                 promptEn: "English AI video prompt",
                 negativePrompt: "负面 prompt",
@@ -249,8 +366,6 @@ export function buildModelMessages(
           null,
           2
         ),
-        "本地初步分析，可参考但不要机械照抄：",
-        JSON.stringify(fallbackAnalysis, null, 2),
         "原始文案：",
         request.inputText
       ].join("\n")
@@ -258,147 +373,231 @@ export function buildModelMessages(
   ];
 }
 
-function analyzeInput(inputText: string, brandTone: BrandTone): StoryboardAnalysis {
-  const text = inputText.replace(/\s+/g, " ").trim();
-  const sentences = text.split(/[。！？!?；;\n]/).map((item) => item.trim()).filter(Boolean);
-  const keywords = extractKeywords(text);
-  const productName = guessProductName(text, keywords);
+function resolvePersonaContext(personaPrompt?: string, persona: Persona = "auto") {
+  const cleanedPrompt = personaPrompt?.trim();
+  const fallbackProfile = personaProfiles[persona] ?? personaProfiles.auto;
+
+  if (!cleanedPrompt) {
+    return {
+      personaText: fallbackProfile.label,
+      visualStyle: fallbackProfile.visualStyle,
+      personaInstruction: fallbackProfile.hint
+    };
+  }
+
+  const inferredStyle = inferVisualStyleFromPersona(cleanedPrompt);
+  const visualStyle = inferredStyle === "auto" ? fallbackProfile.visualStyle : inferredStyle;
 
   return {
-    productName,
-    brandTone: brandTone === "auto" ? inferTone(text) : toneLabels[brandTone],
-    sellingPoints: fillList(findByPatterns(sentences, ["卖点", "添加", "采用", "搭载", "支持", "提升", "温和", "快速", "高效", "专利"]), keywords, [
-      `${productName}的核心体验被快速放大`,
-      "使用门槛低，能在日常场景里立刻看到变化",
-      "把复杂问题压缩成一个简单动作"
-    ]),
-    painPoints: fillList(findByPatterns(sentences, ["痛点", "烦", "怕", "担心", "麻烦", "油腻", "干燥", "熬夜", "费时", "卡顿"]), keywords, [
-      "用户原本需要忍受低效、凌乱或不确定的体验",
-      "传统方案反馈慢，难以在短视频里一眼看懂",
-      "购买前担心真实效果和宣传不一致"
-    ]),
-    useCases: fillList(findByPatterns(sentences, ["场景", "通勤", "办公室", "宿舍", "旅行", "约会", "睡前", "出门", "直播", "拍照"]), keywords, [
-      "早晨出门前的高频使用场景",
-      "办公室或居家桌面的真实决策场景",
-      "朋友分享和社交平台种草场景"
-    ]),
-    resultValues: fillList(findByPatterns(sentences, ["变得", "让你", "改善", "省下", "看起来", "更", "安心", "舒服", "清爽", "稳定"]), keywords, [
-      "让用户在几秒内看见前后差异",
-      "把产品价值转化成可感知的生活改善",
-      "降低尝试成本，强化立即购买理由"
-    ])
+    personaText: cleanedPrompt,
+    visualStyle,
+    personaInstruction:
+      "严格以用户输入的人设为准，结合脚本原文生成镜头。不要退回预设人设；不要只写通用种草博主。每个镜头都要体现该人设的身份、口吻、审美、专业程度、拍摄习惯和目标受众。"
   };
 }
 
-function buildScenes(
-  analysis: StoryboardAnalysis,
-  platform: Platform,
-  duration: Duration,
-  visualStyle: VisualStyle,
-  count: number
-): StoryboardScene[] {
-  const beats = ["痛点钩子", "卖点放大", "使用场景", "效果对比", "信任证据", "情绪结果", "行动引导"].slice(0, count);
-  const platformName = getPlatformLabel(platform);
-  const styleLabel = getVisualStyleLabel(visualStyle);
-  const styleHint = styleHints[visualStyle];
+function inferVisualStyleFromPersona(personaPrompt: string): VisualStyle {
+  const text = personaPrompt.toLowerCase();
+  const rules: { style: VisualStyle; keywords: string[] }[] = [
+    {
+      style: "minimal",
+      keywords: ["成分党", "专业", "医生", "实验", "干净", "极简", "白皮书", "证据"]
+    },
+    {
+      style: "tech",
+      keywords: ["科技", "数码", "测评", "参数", "性能", "效率", "ai", "工具", "家电", "理性", "极客"]
+    },
+    {
+      style: "feminine",
+      keywords: ["女性", "女生", "女", "闺蜜", "美妆", "护肤", "精致", "香氛", "穿搭", "变美", "白领"]
+    },
+    {
+      style: "luxury",
+      keywords: ["高奢", "轻熟", "高级", "品质", "精品", "审美", "礼盒", "珠宝", "奢华", "通勤", "质感"]
+    },
+    {
+      style: "warm",
+      keywords: ["宝妈", "妈妈", "家庭", "亲子", "居家", "厨房", "家清", "母婴", "安心"]
+    },
+    {
+      style: "cute",
+      keywords: ["学生", "平价", "宿舍", "可爱", "活泼", "元气", "小预算"]
+    },
+    {
+      style: "fresh",
+      keywords: ["健康", "健身", "自律", "运动", "轻食", "清爽", "自然", "养生"]
+    },
+    {
+      style: "oriental",
+      keywords: ["东方", "国风", "草本", "茶", "中式", "香道", "木质", "水墨"]
+    },
+    {
+      style: "dramatic",
+      keywords: ["夸张", "娱乐", "搞笑", "反差", "冲击", "剧情", "爽感"]
+    }
+  ];
 
-  return beats.map((beat, index) => {
-    const sellingPoint = pick(analysis.sellingPoints, index);
-    const painPoint = index === 2 ? pick(analysis.useCases, index) : pick(analysis.painPoints, index);
-    const resultValue = pick(analysis.resultValues, index);
-    const aiEffect = `以${styleLabel}视觉把“${painPoint}”具象化，再让“${sellingPoint}”变成可见粒子、光线、结构剖面或时间压缩变化，最终聚合成“${resultValue}”。`;
-    const visualDescription = `${beat}镜头：真实生活桌面或使用现场中，用户正被“${painPoint}”打断，${analysis.productName}从手边进入画面，围绕“${sellingPoint}”完成一个明确动作。画面保持${analysis.brandTone}和${styleLabel}，${styleHint}`;
-    const cameraMovement = index % 2 === 0 ? "从场景细节快速推近到产品动作，再稳定停在变化结果。" : "微距跟拍产品动作，随后拉开到使用前后对比。";
+  const bestMatch = rules.reduce<{ style: VisualStyle; score: number }>(
+    (best, rule) => {
+      const score = rule.keywords.reduce(
+        (total, keyword) => total + (text.includes(keyword) ? 1 : 0),
+        0
+      );
 
-    return {
-      id: `scene-${index + 1}`,
-      sceneTitle: `${index + 1}. ${beat}`,
-      sellingPoint,
-      painPoint,
-      visualDescription,
-      cameraMovement,
-      aiEffect,
-      subtitle: index === 0 ? "别再忍了，问题其实可以这样解决" : `${sellingPoint}，一眼看见差别`,
-      voiceover: `${analysis.productName}通过${sellingPoint}解决${painPoint}，带来${resultValue}。`,
-      promptZh: `${platformName}${duration}产品种草短视频镜头，产品：${analysis.productName}。画面风格：${styleLabel}，${styleHint}画面：${visualDescription} 镜头：${cameraMovement} AI视频效果：${aiEffect} 主体清晰、产品不变形、字幕留在安全区。`,
-      promptEn: `${platformName} product recommendation short video shot, product: ${analysis.productName}. Visual style: ${styleLabel}. Scene: ${visualDescription}. Camera: ${cameraMovement}. AI visual effect: ${aiEffect}. Keep it realistic, product-accurate, clean lighting, safe subtitle area.`,
-      negativePrompt: genericNegativePrompt,
-      transitionFromPrevious: index === 0 ? "开场直接进入用户最熟悉的痛点。" : "承接上一镜头的动作，把卖点继续推进到可见结果。"
-    };
-  });
+      return score > best.score ? { style: rule.style, score } : best;
+    },
+    { style: "auto", score: 0 }
+  );
+
+  return bestMatch.score > 0 ? bestMatch.style : "auto";
 }
 
-function extractKeywords(text: string) {
-  const stopWords = new Set(["这个", "一个", "我们", "你们", "他们", "就是", "可以", "不是", "没有", "非常", "真的", "产品", "使用", "效果"]);
-  const matches = text.match(/[\u4e00-\u9fa5A-Za-z0-9]{2,12}/g) ?? [];
-  const counts = new Map<string, number>();
-  for (const word of matches) {
-    if (stopWords.has(word)) continue;
-    counts.set(word, (counts.get(word) ?? 0) + 1);
+function splitSentences(text: string) {
+  const chunks = text
+    .split(/[。！？!?；;\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  return chunks.length ? chunks : [text || "请粘贴产品文案"];
+}
+
+function createScriptSegments(inputText: string, maxCount: number) {
+  const rawText = inputText.trim();
+  const lineUnits = rawText
+    .split(/\n+/)
+    .map(cleanScriptUnit)
+    .filter((item) => item.length >= 4);
+  const sentenceUnits = splitSentences(rawText)
+    .map(cleanScriptUnit)
+    .filter((item) => item.length >= 4);
+  const units = unique(lineUnits.length >= 2 ? lineUnits : sentenceUnits);
+
+  if (!units.length) return ["请先粘贴产品文案、脚本或逐字稿。"];
+
+  const targetCount =
+    units.length >= 4 ? Math.min(maxCount, units.length) : Math.min(maxCount, Math.max(3, units.length));
+  if (units.length <= targetCount) return units;
+
+  const groups: string[] = [];
+  for (let index = 0; index < targetCount; index += 1) {
+    const start = Math.floor((index * units.length) / targetCount);
+    const end = Math.floor(((index + 1) * units.length) / targetCount);
+    const group = units.slice(start, Math.max(start + 1, end)).join("。");
+    groups.push(group);
   }
-  return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([word]) => word).slice(0, 8);
+
+  return groups.map((item) => shortenText(item, 96));
 }
 
-function findByPatterns(sentences: string[], patterns: string[]) {
-  return sentences.filter((sentence) => patterns.some((pattern) => sentence.includes(pattern))).map((sentence) => sentence.slice(0, 42)).slice(0, 4);
+function cleanScriptUnit(text: string) {
+  return text
+    .replace(/^\s*(?:镜头|场景|scene|shot)\s*\d*\s*[:：.-]\s*/i, "")
+    .replace(/^\s*(?:旁白|字幕|口播|主播|画面|文案|开头|结尾|承接|转折|行动引导|cta)\s*[:：]\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-function fillList(primary: string[], keywords: string[], fallback: string[]) {
-  const keywordItems = keywords.slice(0, 3).map((keyword) => `围绕“${keyword}”形成可视化记忆点`);
-  return [...new Set([...primary, ...fallback, ...keywordItems].map((item) => item.trim()).filter(Boolean))].slice(0, 5);
+function shortenText(text: string, maxLength: number) {
+  const cleaned = cleanScriptUnit(text);
+  return cleaned.length > maxLength ? `${cleaned.slice(0, maxLength)}...` : cleaned;
 }
 
-function guessProductName(text: string, keywords: string[]) {
-  const explicit = text.match(/(?:产品名|品牌|品名|名称)[:：]\s*([\u4e00-\u9fa5A-Za-z0-9\-\s]{2,24})/);
-  if (explicit?.[1]) return explicit[1].trim();
-  const productLike = text.match(/([\u4e00-\u9fa5A-Za-z0-9]{2,18}(?:精华|面霜|面膜|咖啡|茶|零食|耳机|手机|键盘|灯|锅|杯|包|鞋|机|仪|器|喷雾|口红|粉底))/);
-  if (productLike?.[1]) return productLike[1].trim();
-  return keywords[0] ? `${keywords[0]}产品` : "待命名产品";
+function unique(items: string[]) {
+  return [...new Set(items.map((item) => item.trim()).filter(Boolean))];
 }
 
-function inferTone(text: string) {
-  if (/(科技|智能|AI|芯片|算法|数据|效率|性能)/i.test(text)) return "科技产品";
-  if (/(温和|治愈|陪伴|家庭|妈妈|孩子|睡前|日常)/.test(text)) return "生活温暖";
-  if (/(高端|极简|质感|轻奢|成分|专业|实验|医生)/.test(text)) return "专业可信";
-  if (/(国风|东方|草本|茶|木|香|节气)/.test(text)) return "东方审美";
-  if (/(学生|年轻|潮|穿搭|朋友|聚会|打卡)/.test(text)) return "年轻潮流";
-  return "专业可信";
-}
-
-function pick(items: string[], index: number) {
-  return items[index % items.length] ?? items[0] ?? "核心卖点";
-}
-
-function normalizeScene(scene: unknown, index: number, fallback: StoryboardScene | undefined, analysis: StoryboardAnalysis) {
-  if (!isRecord(scene) && !fallback) return null;
-  const source = isRecord(scene) ? scene : {};
-  const backup = fallback ?? createFallbackStoryboard({ inputText: analysis.productName, brandTone: "auto", platform: "douyin", duration: "30s" }).scenes[index];
+function normalizeScene(scene: unknown, index: number): StoryboardScene {
+  if (!isRecord(scene)) {
+    throw new Error(`模型返回的第 ${index + 1} 个分镜不是对象`);
+  }
 
   return {
     id: `scene-${index + 1}`,
-    sceneTitle: readString(source.sceneTitle, backup.sceneTitle),
-    sellingPoint: readString(source.sellingPoint, backup.sellingPoint),
-    painPoint: readString(source.painPoint, backup.painPoint),
-    visualDescription: readString(source.visualDescription, backup.visualDescription),
-    cameraMovement: readString(source.cameraMovement, backup.cameraMovement),
-    aiEffect: readString(source.aiEffect, backup.aiEffect),
-    subtitle: readString(source.subtitle, backup.subtitle),
-    voiceover: readString(source.voiceover, backup.voiceover),
-    promptZh: readString(source.promptZh, backup.promptZh),
-    promptEn: readString(source.promptEn, backup.promptEn),
-    negativePrompt: readString(source.negativePrompt, backup.negativePrompt),
-    transitionFromPrevious: readString(source.transitionFromPrevious, backup.transitionFromPrevious)
+    sceneTitle: stripSceneTitleIndex(requireString(scene.sceneTitle, `scenes[${index}].sceneTitle`)),
+    scriptAnchor: requireString(scene.scriptAnchor, `scenes[${index}].scriptAnchor`),
+    sellingPoint: requireString(scene.sellingPoint, `scenes[${index}].sellingPoint`),
+    painPoint: requireString(scene.painPoint, `scenes[${index}].painPoint`),
+    visualDescription: requireString(
+      scene.visualDescription,
+      `scenes[${index}].visualDescription`
+    ),
+    cameraMovement: requireString(scene.cameraMovement, `scenes[${index}].cameraMovement`),
+    aiEffect: requireString(scene.aiEffect, `scenes[${index}].aiEffect`),
+    promptZh: requireString(scene.promptZh, `scenes[${index}].promptZh`),
+    promptEn: requireString(scene.promptEn, `scenes[${index}].promptEn`),
+    negativePrompt: requireString(scene.negativePrompt, `scenes[${index}].negativePrompt`),
+    transitionFromPrevious: requireString(
+      scene.transitionFromPrevious,
+      `scenes[${index}].transitionFromPrevious`
+    )
   };
+}
+
+function requireRecord(value: unknown, fieldName: string): Record<string, unknown> {
+  if (!isRecord(value)) {
+    throw new Error(`${fieldName} 必须是对象`);
+  }
+
+  return value;
+}
+
+function requireString(value: unknown, fieldName: string) {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`${fieldName} 必须是非空字符串`);
+  }
+
+  return value.trim();
+}
+
+function requireStringArray(value: unknown, fieldName: string) {
+  if (!Array.isArray(value)) {
+    throw new Error(`${fieldName} 必须是字符串数组`);
+  }
+
+  const items = value.filter(
+    (item): item is string => typeof item === "string" && item.trim().length > 0
+  );
+
+  if (!items.length) {
+    throw new Error(`${fieldName} 至少需要 1 项`);
+  }
+
+  return items.slice(0, 8);
 }
 
 function readString(value: unknown, fallback: string) {
   return typeof value === "string" && value.trim() ? value.trim() : fallback;
 }
 
+function stripSceneTitleIndex(title: string) {
+  return title.replace(/^\s*(?:镜头|场景)?\s*\d+\s*[.、:：-]\s*/, "").trim() || title;
+}
+
 function readStringArray(value: unknown, fallback: string[]) {
   if (!Array.isArray(value)) return fallback;
-  const items = value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  const items = value.filter(
+    (item): item is string => typeof item === "string" && item.trim().length > 0
+  );
   return items.length ? items.slice(0, 8) : fallback;
+}
+
+function normalizeReasoningSummary(
+  value: unknown,
+  fallback: PublicReasoningStep[]
+): PublicReasoningStep[] {
+  if (!Array.isArray(value)) return fallback;
+
+  const steps = value
+    .map((item) => {
+      if (!isRecord(item)) return null;
+
+      const title = readString(item.title, "");
+      const detail = readString(item.detail, "");
+      return title && detail ? { title, detail } : null;
+    })
+    .filter((item): item is PublicReasoningStep => Boolean(item));
+
+  return steps.length ? steps.slice(0, 8) : fallback;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
