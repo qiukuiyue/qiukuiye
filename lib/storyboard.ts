@@ -324,8 +324,9 @@ export function buildModelMessages(
         "9. AI 效果优先使用：微观成分/结构可视化、时间压缩、不可见问题具象化、同一镜头前后状态共存、环境响应、情绪/触感/气味/噪声/吸收/效率等抽象体验可视化。",
         "10. 所有镜头必须统一人设和画面风格，不要一镜一套视觉体系；人设和风格要进入 visualDescription、aiEffect、promptZh 和 promptEn，而不是只写在分析里。",
         "11. 必须把用户输入的人设和脚本原文结合起来：如果人设里有年龄、职业、表达口吻、审美偏好、拍摄习惯、专业程度或目标受众，要在每个镜头里转成具体场景、视角、道具、画面质感和 AI 效果。",
-        "12. 输出 reasoningSummary，展示可公开的导演分析步骤，必须说明如何按脚本段落拆镜、如何结合人设选择画面风格。不要输出隐藏思维链、逐 token 推理或长篇内心过程，只输出用户可读的简洁创作依据。",
-        "13. 输出 JSON 结构必须严格匹配：",
+        "12. transitionFromPrevious 每个镜头都必须非空；第一个镜头写“开场镜头，无需承接上一段；直接进入脚本第一段。”，后续镜头说明如何承接上一镜头。",
+        "13. 输出 reasoningSummary，展示可公开的导演分析步骤，必须说明如何按脚本段落拆镜、如何结合人设选择画面风格。不要输出隐藏思维链、逐 token 推理或长篇内心过程，只输出用户可读的简洁创作依据。",
+        "14. 输出 JSON 结构必须严格匹配：",
         JSON.stringify(
           {
             analysis: {
@@ -358,7 +359,7 @@ export function buildModelMessages(
                 promptZh: "中文 AI 视频 prompt",
                 promptEn: "English AI video prompt",
                 negativePrompt: "负面 prompt",
-                transitionFromPrevious: "上一段衔接说明"
+                transitionFromPrevious: "第一个镜头写开场衔接；后续镜头写与上一镜头的承接说明"
               }
             ],
             warnings: ["可选提醒"]
@@ -526,11 +527,19 @@ function normalizeScene(scene: unknown, index: number): StoryboardScene {
     promptZh: requireString(scene.promptZh, `scenes[${index}].promptZh`),
     promptEn: requireString(scene.promptEn, `scenes[${index}].promptEn`),
     negativePrompt: requireString(scene.negativePrompt, `scenes[${index}].negativePrompt`),
-    transitionFromPrevious: requireString(
+    transitionFromPrevious: readString(
       scene.transitionFromPrevious,
-      `scenes[${index}].transitionFromPrevious`
+      createTransitionFallback(index)
     )
   };
+}
+
+function createTransitionFallback(index: number) {
+  if (index === 0) {
+    return "开场镜头，无需承接上一段；直接进入脚本第一段。";
+  }
+
+  return "承接上一镜头的产品动作或结果变化，继续推进当前脚本片段。";
 }
 
 function requireRecord(value: unknown, fieldName: string): Record<string, unknown> {
